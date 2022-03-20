@@ -1,0 +1,696 @@
+CameraClamp.cs
+
+using UnityEngine;
+
+public class CameraClamp : MonoBehaviour
+{
+    [SerializeField] private Transform targetToFollow;
+
+    private void Update()
+    {
+        transform.position = new Vector3(Mathf.Clamp(targetToFollow.position.x, -5.8f, 5.8f), Mathf.Clamp(targetToFollow.position.y, -3.0f, 2.4f), transform.position.z);
+    }
+}
+
+
+EnemyDamage.cs
+
+using UnityEngine;
+
+public class EnemyDamage : MonoBehaviour
+{
+    [SerializeField] protected float damage; 
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        if (collision.tag == "Player")
+            collision.GetComponent<Health>().TakeDamage(damage);
+    }
+
+}
+
+
+HitDestroy.cs
+
+using UnityEngine;
+
+public class HitDestroy : MonoBehaviour
+{
+    private Animator anim;
+    private PolygonCollider2D boxCollider;
+
+    private void Awake()
+    {
+        anim = GetComponent<Animator>();
+        boxCollider = GetComponent<PolygonCollider2D>();
+    }
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        if (collision.gameObject.tag == "Kunai")
+        {
+            boxCollider.enabled = false;
+            anim.SetTrigger("impact");
+        }
+    }
+
+    private void Deactivate()
+    {
+        gameObject.SetActive(false);
+    }
+}
+
+
+Level Manager.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class LevelManager : MonoBehaviour
+{
+    public static LevelManager instance;
+    public Transform respawnPoint;
+    public GameObject playerPrefab;
+    public CameraClamp cam;
+
+    private void Awake()
+    {
+        instance = this;
+    }
+
+    public void Respawn ()
+    {
+        GameObject player = Instantiate(playerPrefab, respawnPoint.position, Quaternion.identity);
+      
+    }
+
+
+
+}
+
+
+
+MainMenu.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.SceneManagement;
+using TMPro;
+
+public class MainMenu : MonoBehaviour
+{
+    [SerializeField] private GameObject optionPanel, mainMenuPanel;
+
+    public void StartGame()
+    {
+        SceneManager.LoadScene("Level 1");
+    }
+
+    public void ShowOptions()
+    {
+        mainMenuPanel.SetActive(false);
+        optionPanel.SetActive(true);
+    }
+
+    public void ShowMainMenu()
+    {
+        mainMenuPanel.SetActive(true);
+        optionPanel.SetActive(false);
+    }
+
+    public void Exit()
+    {
+        Debug.Log("Exit");
+        Application.Quit();
+    }
+}
+
+
+
+PlayerAttack.cs
+
+using UnityEngine;
+
+public class PlayerAttack : MonoBehaviour
+{
+    [SerializeField] private float attackCooldown;
+    [SerializeField] private Transform firePoint;
+    [SerializeField] private GameObject[] kunai;
+
+    private Animator anim;
+    private PlayerMovement playerMovement;
+    private float cooldownTimer = Mathf.Infinity;
+
+    private void Awake()
+    {
+        anim = GetComponent<Animator>();
+        playerMovement = GetComponent<PlayerMovement>();
+    }
+
+    private void Update()
+    {
+        if (Input.GetMouseButton(0) && cooldownTimer > attackCooldown && playerMovement.canAttack())
+            Attack();
+
+        cooldownTimer += Time.deltaTime;
+    }
+
+    private void Attack()
+    {
+        anim.SetTrigger("attack");
+        cooldownTimer = 0;
+
+        kunai[FindKunai()].transform.position = firePoint.position;
+        kunai[FindKunai()].GetComponent<Projectile>().SetDirection(Mathf.Sign(transform.localScale.x));
+    }
+
+    private int FindKunai()
+    {
+        for (int i = 0; i < kunai.Length; i++)
+        {
+            if (!kunai[i].activeInHierarchy)
+                return i;
+        }
+        return 0;
+    }
+}
+
+
+PlayerMovement.cs
+
+using UnityEngine;
+
+public class PlayerMovement : MonoBehaviour
+{
+    [SerializeField] private float speed;
+    [SerializeField] private float jumpPower;
+    [SerializeField] private LayerMask groundLayer;
+    [SerializeField] private LayerMask wallLayer;
+
+    private Rigidbody2D body;
+    private Animator anim;
+    private BoxCollider2D boxCollider;
+    private float wallJumpCooldown;
+    private float horizontalInput;
+
+    private void Awake()
+    {
+        body = GetComponent<Rigidbody2D>();
+        anim = GetComponent<Animator>();
+        boxCollider = GetComponent<BoxCollider2D>();
+    }
+
+    private void Update()
+    {
+        horizontalInput = Input.GetAxis("Horizontal");
+
+        if (horizontalInput > 0.01f)
+            transform.localScale = Vector3.one;
+        else if(horizontalInput < -0.01f)
+                transform.localScale = new Vector3(-1, 1, 1);
+
+        anim.SetBool("run", horizontalInput != 0);
+        anim.SetBool("grounded", isGrounded());
+
+        if (wallJumpCooldown > 0.2f)
+        {
+            body.velocity = new Vector2(horizontalInput * speed, body.velocity.y);
+
+            if (onWall() && !isGrounded())
+            {
+                body.gravityScale = 0;
+                body.velocity = Vector2.zero;
+            }
+            else
+                body.gravityScale = 3;
+
+            if (Input.GetKey(KeyCode.Space))
+                Jump();
+        }
+        else
+            wallJumpCooldown += Time.deltaTime;
+    }
+
+    private void Jump()
+    {
+        if (isGrounded())
+        {
+            body.velocity = new Vector2(body.velocity.x, jumpPower);
+            anim.SetTrigger("jump");
+        }
+        else if (onWall() && !isGrounded())
+        {
+            if(horizontalInput == 0)
+            {
+                body.velocity = new Vector2(-Mathf.Sign(transform.localScale.x) * 2, 0);
+                transform.localScale = new Vector3(-Mathf.Sign(transform.localScale.x), transform.localScale.y, transform.localScale.z);
+            }
+            else
+                body.velocity = new Vector2(-Mathf.Sign(transform.localScale.x) * 3, 6);
+
+            wallJumpCooldown = 0;
+        }
+    }
+
+    private bool isGrounded()
+    {
+        RaycastHit2D raycastHit = Physics2D.BoxCast(boxCollider.bounds.center, boxCollider.bounds.size, 0, Vector2.down, 0.1f, groundLayer);
+        return raycastHit.collider != null; 
+    }
+
+    private bool onWall()
+    {
+        RaycastHit2D raycastHit = Physics2D.BoxCast(boxCollider.bounds.center, boxCollider.bounds.size, 0, new Vector2(transform.localScale.x, 0), 0.1f, wallLayer);
+        return raycastHit.collider != null;
+    }
+    
+    public bool canAttack()
+    {
+        return horizontalInput == 0 && isGrounded() && !onWall();
+    }
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if(other.gameObject.CompareTag("Keys"))
+        {
+            Destroy(other.gameObject);
+        }
+    }
+}
+
+
+Projectile.cs
+
+using UnityEngine;
+
+public class Projectile : MonoBehaviour
+{
+    [SerializeField] private float speed;
+    private float direction;
+    private bool hit;
+
+    private Animator anim;
+    private BoxCollider2D boxCollider;
+
+    private void Awake()
+    {
+        anim = GetComponent<Animator>();
+        boxCollider = GetComponent<BoxCollider2D>();
+    }
+
+    private void Update()
+    {
+        if (hit) return;
+        float movementSpeed = speed * Time.deltaTime * direction;
+        transform.Translate(movementSpeed, 0, 0);
+    }
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        hit = true;
+        boxCollider.enabled = false;
+        anim.SetTrigger("explode");
+
+        if (collision.tag == "Enemy")
+            collision.GetComponent<Health>().TakeDamage(1);
+    }
+
+    public void SetDirection(float _direction)
+    {
+        direction = _direction;
+        gameObject.SetActive(true);
+        hit = false;
+        boxCollider.enabled = true;
+
+        float localScaleX = transform.localScale.x;
+        if (Mathf.Sign(localScaleX) != _direction)
+            localScaleX = -localScaleX;
+
+        transform.localScale = new Vector3(localScaleX, transform.localScale.y, transform.localScale.z);
+    }
+
+    private void Deactivate()
+    {
+        gameObject.SetActive(false);
+    }
+}
+
+
+EnemyPatrol.cs
+
+using UnityEngine;
+
+public class EnemyPatrol : MonoBehaviour
+{
+    [Header ("Patrol Points")]
+    [SerializeField] private Transform leftEdge;
+    [SerializeField] private Transform rightEdge;
+
+    [Header("Enemy")]
+    [SerializeField] private Transform enemy;
+
+    [Header("Movement parameters")]
+    [SerializeField] private float speed;
+    private Vector3 initScale;
+    private bool movingLeft;
+
+    [Header("Idle Behaviour")]
+    [SerializeField] private float idleDuration;
+    private float idleTimer;
+
+    [Header("Enemy Animator")]
+    [SerializeField] private Animator anim;
+
+    private void Awake()
+    {
+        initScale = enemy.localScale;
+    }
+
+    private void OnDisable()
+    {
+        anim.SetBool("moving", false); 
+    }
+    private void Update()
+    {
+        if (movingLeft)
+        {
+            if (enemy.position.x >= leftEdge.position.x)
+            MoveInDirection(-1);
+            else
+            {
+                DirectionChange();
+            }
+        }
+        else
+        {
+            if (enemy.position.x <= rightEdge.position.x)
+                MoveInDirection(1);
+            else
+            {
+                DirectionChange();
+            }
+                 
+        }
+    }
+
+    private void DirectionChange()
+    {
+        anim.SetBool("moving", false);
+        idleTimer += Time.deltaTime;
+
+        if(idleTimer > idleDuration)
+            movingLeft = !movingLeft;
+
+
+    }
+    private void MoveInDirection(int _direction) 
+    {
+        idleTimer = 0;
+        anim.SetBool("moving", true);
+        //make enemy face direction
+        enemy.localScale = new Vector3(Mathf.Abs(initScale.x) * _direction,  
+            initScale.y, initScale.z);
+
+        //move in that direction 
+        enemy.position = new Vector3(enemy.position.x + Time.deltaTime * _direction * speed,
+            enemy.position.y, enemy.position.z);
+    }
+} 
+
+
+
+MeleeEnemy.cs
+
+using UnityEngine;
+
+public class MeleeEnemy : MonoBehaviour
+{
+    [Header ("Attack Paramters")]
+    [SerializeField] private float attackCooldown;
+    [SerializeField] private float range;
+    [SerializeField] private int damage;
+
+    [Header("Collider Parameters")]
+    [SerializeField] private BoxCollider2D boxCollider;
+    [SerializeField] private float colliderDistance;
+
+    [Header("Player Layer")]
+    [SerializeField] private LayerMask playerLayer;
+    private float cooldownTimer = Mathf.Infinity;
+
+
+    private Animator anim;
+    private Health playerHealth;
+
+    private EnemyPatrol enemyPatrol;
+    private void Awake()
+    {
+        anim = GetComponent<Animator>();
+        enemyPatrol = GetComponentInParent<EnemyPatrol>();
+    }
+
+    private void Update()
+    {
+        cooldownTimer += Time.deltaTime;
+
+        if (PlayerInSight())
+        {
+            if (cooldownTimer >= attackCooldown)
+
+            //attack when player in sight
+            {
+                cooldownTimer = 0;
+                anim.SetTrigger("meleeAttack");
+
+            }
+        }
+
+        if (enemyPatrol != null)
+            enemyPatrol.enabled = !PlayerInSight();
+
+    }
+
+    private bool PlayerInSight()
+    {
+        RaycastHit2D hit = Physics2D.BoxCast(boxCollider.bounds.center + transform.right * range * transform.localScale.x * colliderDistance,
+            new Vector3 (boxCollider.bounds.size.x * range, boxCollider.bounds.size.y, boxCollider.bounds.size.z),
+            0, Vector2.left, 0, playerLayer);
+
+        if (hit.collider != null)
+            playerHealth = hit.transform.GetComponent<Health>();
+
+        return hit.collider != null;
+    }
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireCube(boxCollider.bounds.center + transform.right * range * transform.localScale.x * colliderDistance,
+            new Vector3(boxCollider.bounds.size.x * range, boxCollider.bounds.size.y, boxCollider.bounds.size.z)); 
+    }
+
+    private void DamagePlayer()
+    {
+        if (PlayerInSight())
+        {
+            playerHealth.TakeDamage(damage);
+        }
+    }
+}
+
+
+
+Health.cs
+
+using System.Collections;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Health : MonoBehaviour
+{
+    [Header ("Health")]
+    [SerializeField] private float startingHealth;
+    public float currentHealth { get; private set; }
+    private Animator anim;
+    private bool dead;
+
+    [Header("iFrames")]
+    [SerializeField] private float iFramesDuration;
+    [SerializeField] private int numberOffFlashes;
+    private SpriteRenderer spriteRend;
+
+
+    private void Awake()
+    {
+        currentHealth = startingHealth;
+        anim = GetComponent<Animator>();
+        spriteRend = GetComponent<SpriteRenderer>();
+    }
+    public void TakeDamage(float _damage)
+    {
+        currentHealth = Mathf.Clamp(currentHealth - _damage, 0, startingHealth);
+        
+        if (currentHealth > 0)
+        {
+            anim.SetTrigger("hurt");
+            StartCoroutine(Invulnerability());
+        }
+        else
+        {
+            if (!dead)
+            {
+                anim.SetTrigger("die");
+
+                //player
+                if (GetComponent<PlayerMovement>() != null)
+                    GetComponent<PlayerMovement>().enabled = false;
+
+                //enemy
+                if (GetComponentInParent<EnemyPatrol>() != null)
+                    GetComponentInParent<EnemyPatrol>().enabled = false;
+
+                if (GetComponent<MeleeEnemy>() != null)
+                    GetComponent<MeleeEnemy>().enabled = false;
+
+
+                dead = true;
+            }
+        }
+    }
+    private IEnumerator Invulnerability()
+    {
+        Physics2D.IgnoreLayerCollision(10, 11, true);
+        for (int i = 0; i < numberOffFlashes; i++)
+        {
+            spriteRend.color = new Color(1, 0, 0, 0.5f); 
+            yield return new WaitForSeconds(iFramesDuration / (numberOffFlashes * 2));
+            spriteRend.color = Color.white;
+            yield return new WaitForSeconds(iFramesDuration / (numberOffFlashes * 2));
+        } 
+        Physics2D.IgnoreLayerCollision(10, 11, false);
+
+    }
+
+    public void Death()
+    {
+        if (dead == true)
+        {
+            SceneManager.LoadScene("Level 2");
+        }
+    }
+}
+
+
+
+
+Healthbar.cs
+
+using UnityEngine;
+using UnityEngine.UI;
+
+public class Healthbar : MonoBehaviour
+{
+    [SerializeField] private Health playerHealth;
+    [SerializeField] private Image totalhealthBar; 
+    [SerializeField] private Image currenthealthBar;
+
+
+    private void Start()
+    {
+        totalhealthBar.fillAmount = playerHealth.currentHealth / 10;
+    }
+
+    private void Update()
+    {
+        currenthealthBar.fillAmount = playerHealth.currentHealth / 10;
+
+    }
+
+}
+
+
+
+Key.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Key : MonoBehaviour
+{
+    public int keyValue = 1;
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if(other.gameObject.CompareTag("Player"))
+        {
+            ScoreManager.instance.Changescore(keyValue);
+        }
+    }
+}
+
+
+
+ScoreManager.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using TMPro;
+using UnityEngine.SceneManagement;
+public class ScoreManager : MonoBehaviour
+{
+    public static ScoreManager instance;
+    public TextMeshProUGUI text;
+    private int score;
+
+    public bool isPaused = false;
+    [SerializeField] private GameObject pauseUI;
+    // Start is called before the first frame update
+    void Start()
+    {
+        if(instance == null)
+        {
+            instance = this;
+        }
+    }
+
+    public void Changescore(int keyValue)
+    {
+        score += keyValue;
+        text.text = "X" + score.ToString();
+    }
+
+    private void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            SwitchPause();
+        }
+    }
+
+    public void SwitchPause()
+    {
+        pauseUI.SetActive(!pauseUI.activeSelf);
+        Time.timeScale = Time.timeScale == 1 ? 0 : 1;
+        isPaused = isPaused = true ? false : true;
+    }
+
+    public void Restart()
+    {
+        SceneManager.LoadScene("Level 1");
+    }
+    public void Menu()
+    {
+        SceneManager.LoadScene("MainMenu"); 
+    }
+
+    public void Exit()
+    {
+        Debug.Log("Exit");
+        Application.Quit();
+    }
+}
